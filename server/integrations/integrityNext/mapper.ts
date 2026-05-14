@@ -1,0 +1,1 @@
+// Maps IntegrityNext API data into internal structures.

@@ -1,0 +1,1 @@
+// Declares TypeScript types for the suppliers module.

@@ -1,0 +1,1 @@
+// Defines the IntegrityNext API client wrapper.
