@@ -118,6 +118,25 @@ function objectToChartData(input: Record<string, number> | undefined) {
     .filter((row) => Number.isFinite(row.value));
 }
 
+function complianceErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+
+  if (message.includes("HTTP 404")) {
+    return "Compliance endpoints are not available in this backend instance. Mount the compliance backend and restart the API server.";
+  }
+
+  if (
+    /relation .* does not exist/i.test(message) ||
+    /schema cache/i.test(message) ||
+    /HTTP 500/.test(message)
+  ) {
+    return "Compliance schema or seed data is not ready. Apply supabase/migrations/20240101000014_compliance.sql and refresh this page.";
+  }
+
+  return message || "Compliance data could not be loaded. Verify the compliance backend and migration are in place.";
+}
+
 export default function CompliancePage() {
   usePageTitle("Compliance");
 
@@ -205,7 +224,7 @@ export default function CompliancePage() {
 
       {anyError ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Compliance tables are not available yet. Apply migration 008, then refresh this page.
+          {complianceErrorMessage(anyError.error)}
         </div>
       ) : null}
 

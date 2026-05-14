@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import * as Sentry from "@sentry/node";
 import suppliersRouter from "./modules/suppliers/suppliers.routes";
 import contractsRouter from "./modules/contracts/contracts.routes";
@@ -12,6 +14,7 @@ import riskRouter from "./modules/risk/risk.routes";
 import activityRouter from "./modules/activity/activity.routes";
 import esgRouter from "./modules/esg/esg.routes";
 import alertsRouter from "./modules/alerts/alerts.routes";
+import complianceRouter from "./modules/compliance/compliance.routes";
 import { correlationIdMiddleware } from "./middleware/correlationId";
 import { generalLimiter } from "./middleware/rateLimiter";
 import { errorHandler } from "./middleware/errorHandler";
@@ -19,9 +22,13 @@ import logger from "./shared/logger";
 import { startDailySnapshotWorker } from "./jobs/workers/dailySnapshotWorker";
 import { startExternalDataWorker } from "./jobs/workers/externalDataWorker";
 import { startScheduler } from "./jobs/scheduler";
-import { closeQueues } from "./jobs/queue";
+import { areBackgroundJobsEnabled, closeQueues } from "./jobs/queue";
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const dotenvPath = path.resolve(__dirname, "..", ".env");
+
+dotenv.config({ path: dotenvPath });
 
 const app = express();
 app.use(correlationIdMiddleware);
@@ -107,6 +114,7 @@ app.use("/api/risk", riskRouter);
 app.use("/api", activityRouter);
 app.use("/api/esg", esgRouter);
 app.use("/api", alertsRouter);
+app.use("/api", complianceRouter);
 
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
@@ -115,20 +123,36 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, async () => {
   logger.info({ port: PORT }, "SRM API running");
 
-  // Start BullMQ workers
-  const snapshotWorker = startDailySnapshotWorker();
-  const externalDataWorker = startExternalDataWorker();
+  const jobsEnabled = areBackgroundJobsEnabled();
+  logger.info(
+    {
+      jobsEnabled,
+      backgroundJobs: jobsEnabled ? "enabled" : "disabled",
+      NODE_ENV: process.env.NODE_ENV ?? "(unset)",
+      DISABLE_JOBS: process.env.DISABLE_JOBS ?? "(unset)",
+      dotenvPath,
+    },
+    jobsEnabled
+      ? "Background jobs ENABLED - starting BullMQ workers and scheduler"
+      : "Background jobs DISABLED - skipping BullMQ workers, scheduler, and queue clients"
+  );
 
-  // Start scheduler (repeatable jobs)
-  await startScheduler();
+  const snapshotWorker = jobsEnabled ? startDailySnapshotWorker() : null;
+  const externalDataWorker = jobsEnabled ? startExternalDataWorker() : null;
+
+  if (jobsEnabled) {
+    await startScheduler();
+  }
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received");
-    await snapshotWorker.close();
-    await externalDataWorker.close();
-    await closeQueues();
-    logger.info("BullMQ shutdown complete");
+    await snapshotWorker?.close();
+    await externalDataWorker?.close();
+    if (jobsEnabled) {
+      await closeQueues();
+      logger.info("BullMQ shutdown complete");
+    }
     process.exit(0);
   };
 

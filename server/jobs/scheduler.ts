@@ -1,9 +1,10 @@
 import logger from '../shared/logger.js';
-import { dailySnapshotQueue } from './queue.js';
+import { getDailySnapshotQueue } from './queue.js';
 
 const DAILY_SNAPSHOT_CRON = '0 2 * * *';
 
 export async function startScheduler(): Promise<void> {
+  const dailySnapshotQueue = getDailySnapshotQueue();
   const existingJobs = await dailySnapshotQueue.getRepeatableJobs();
   for (const job of existingJobs) {
     await dailySnapshotQueue.removeRepeatableByKey(job.key);
