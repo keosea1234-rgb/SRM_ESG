@@ -23,6 +23,14 @@ export type Supplier = SupplierRow;
 export type SupplierContact = SupplierContactRow;
 export type SupplierContract = ContractRow;
 export type SupplierSummary = SupplierSummaryRow;
+export type SupplierDetail = SupplierRow & {
+  latest_performance_score?: number | null;
+  current_risk_level?: string | null;
+  last_evaluated_at?: string | null;
+  last_risk_assessed_at?: string | null;
+  total_value?: number | null;
+  parent_name?: string | null;
+};
 
 // ── LIST (paginated) ──────────────────────────────────────────────────────────
 
@@ -64,11 +72,39 @@ export async function getAllSuppliers() {
 // ── SINGLE ────────────────────────────────────────────────────────────────────
 
 export async function getSupplierById(id: string) {
-  return supabase
-    .from("srm_suppliers")
-    .select("*")
-    .eq("id", id)
-    .single();
+  const [{ data: supplier, error: supplierError }, { data: summary, error: summaryError }] = await Promise.all([
+    supabase
+      .from("srm_suppliers")
+      .select("*")
+      .eq("id", id)
+      .single(),
+    supabase
+      .from("v_supplier_summary")
+      .select("latest_performance_score,current_risk_level,last_evaluated_at,last_risk_assessed_at,total_value,parent_name")
+      .eq("id", id)
+      .maybeSingle(),
+  ]);
+
+  if (supplierError || !supplier) {
+    return { data: null, error: supplierError };
+  }
+
+  if (summaryError) {
+    return { data: null, error: summaryError };
+  }
+
+  return {
+    data: {
+      ...supplier,
+      latest_performance_score: summary?.latest_performance_score ?? null,
+      current_risk_level: summary?.current_risk_level ?? null,
+      last_evaluated_at: summary?.last_evaluated_at ?? null,
+      last_risk_assessed_at: summary?.last_risk_assessed_at ?? null,
+      total_value: summary?.total_value ?? null,
+      parent_name: summary?.parent_name ?? null,
+    },
+    error: null,
+  };
 }
 
 // ── CREATE ────────────────────────────────────────────────────────────────────

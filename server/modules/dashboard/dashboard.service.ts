@@ -3,6 +3,7 @@ import {
   getAllSupplierStats,
   getDecliningSuppliers,
   getEsgBands,
+  getEsgKpisForDashboard,
   getExpiringDocs,
   getHighRiskCount,
   getPerformanceBands,
@@ -12,7 +13,6 @@ import {
   type SnapshotRow,
   type TopSupplierRow,
 } from "./dashboard.repository";
-import { getEsgSummary } from "../esg/esg.service";
 import { getRiskHeatmapData } from "../risk/risk.repository";
 import logger from "../../shared/logger";
 
@@ -67,23 +67,6 @@ export interface DashboardOverview {
   riskHeatmap: { industry: string; risk_type: string; avg_score: number }[];
 }
 
-type EsgKpisResult = {
-  data: DashboardEsgSlice | null;
-  error: { message: string } | null;
-};
-
-async function getEsgKpis(): Promise<EsgKpisResult> {
-  try {
-    const data = await getEsgSummary();
-    return { data, error: null };
-  } catch (e: unknown) {
-    return {
-      data: null,
-      error: { message: e instanceof Error ? e.message : String(e) },
-    };
-  }
-}
-
 export async function getDashboardOverview(industry?: string): Promise<ServiceResult<DashboardOverview>> {
   const [
     suppliers,
@@ -101,11 +84,11 @@ export async function getDashboardOverview(industry?: string): Promise<ServiceRe
     getAllSupplierStats(industry),
     getHighRiskCount(industry),
     getRecentActivities(),
-    getExpiringDocs(),
+    getExpiringDocs(industry),
     getTopSuppliers(industry),
-    getDecliningSuppliers(),
+    getDecliningSuppliers(industry),
     getSparklineData(),
-    getEsgKpis(),
+    getEsgKpisForDashboard(industry),
     getPerformanceBands(industry),
     getEsgBands(industry),
     getRiskHeatmapData().catch((e: unknown) => {
@@ -123,9 +106,9 @@ export async function getDashboardOverview(industry?: string): Promise<ServiceRe
   if (performanceBands.error)
     return { ok: false, status: 500, error: performanceBands.error.message };
   if (esgBands.error) return { ok: false, status: 500, error: esgBands.error.message };
+  if (esgKpis.error) return { ok: false, status: 500, error: esgKpis.error.message };
 
   if (sparkline.error) logger.warn({ err: sparkline.error }, "dashboard sparkline unavailable");
-  if (esgKpis.error) logger.warn({ err: esgKpis.error }, "dashboard esg kpis unavailable");
 
   const supplierRows = suppliers.data ?? [];
   const totalSuppliers = supplierRows.length;
@@ -140,7 +123,7 @@ export async function getDashboardOverview(industry?: string): Promise<ServiceRe
       ? (scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length).toFixed(1)
       : null;
 
-  const snapshots = sparkline.data ?? [];
+  const snapshots = industry && industry !== "all" ? [] : (sparkline.data ?? []);
   const first = snapshots[0] ?? null;
   const last = snapshots[snapshots.length - 1] ?? null;
 

@@ -44,6 +44,16 @@ const riskConfig: Record<string, { label: string; className: string }> = {
   critical: { label: "Critical", className: "risk-critical" },
 };
 
+const segmentBadgeConfig: Record<SupplierSegment, { label: string; className: string }> = {
+  strategic: { label: "Strategic", className: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  at_risk: { label: "At Risk", className: "bg-red-50 text-red-700 border-red-200" },
+  esg_laggard: { label: "ESG Gap", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  high_performer: { label: "High Performer", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  single_source: { label: "Single Source", className: "bg-orange-50 text-orange-700 border-orange-200" },
+  watch: { label: "Watch", className: "bg-blue-50 text-blue-700 border-blue-200" },
+  standard: { label: "Standard", className: "bg-surface-50 text-surface-600 border-surface-200" },
+};
+
 function scoreTierPillClasses(score: number) {
   if (score >= 8) return "bg-emerald-100 text-emerald-800 border border-emerald-300";
   if (score >= 6) return "bg-brand-100 text-brand-800 border border-brand-300";
@@ -570,6 +580,14 @@ export default function SupplierList() {
                 overallEsg == null ? "bg-surface-200" : overallEsg >= 70 ? "bg-emerald-500" : overallEsg >= 50 ? "bg-amber-500" : "bg-red-500";
 
               const initial = (s.name?.trim()?.[0] ?? "S").toUpperCase();
+              const supplierSegments = (segmentData?.bySupplier?.[s.id] ?? []).filter((seg) => seg !== "standard");
+              const needsAction =
+                supplierSegments.includes("at_risk") ||
+                supplierSegments.includes("watch") ||
+                supplierSegments.includes("esg_laggard") ||
+                s.current_risk_level === "high" ||
+                s.current_risk_level === "critical" ||
+                overallEsg == null;
 
               return (
                 <button
@@ -616,6 +634,23 @@ export default function SupplierList() {
                     <div className="h-2 rounded-full bg-surface-100 overflow-hidden" title={overallEsg == null ? "ESG: —" : `ESG: ${overallEsg}/100`}>
                       <div className={`h-full ${esgFill}`} style={{ width: `${esgPct}%` }} />
                     </div>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1">
+                      {supplierSegments.slice(0, 2).map((seg) => {
+                        const cfg = segmentBadgeConfig[seg];
+                        return (
+                          <span key={seg} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
+                            {cfg.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {needsAction && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                        Action needed
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -669,13 +704,14 @@ export default function SupplierList() {
                 </th>
                 <th className="text-center px-5 py-3.5 text-xs font-bold text-surface-600 uppercase tracking-wider">Risk</th>
                 <th className="px-4 py-3.5 text-xs font-bold text-surface-600 uppercase tracking-wider text-center">Health</th>
+                <th className="text-left px-5 py-3.5 text-xs font-bold text-surface-600 uppercase tracking-wider">Signals</th>
                 <th className="text-center px-5 py-3.5 text-xs font-bold text-surface-600 uppercase tracking-wider">Contracts</th>
               </tr>
             </thead>
             <tbody>
               {sortedSuppliers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-16 text-center">
+                  <td colSpan={9} className="px-5 py-16 text-center">
                     <Building2 className="w-8 h-8 text-surface-300 mx-auto mb-2" />
                     <p className="text-sm text-surface-500">No suppliers found</p>
                     <p className="text-xs text-surface-400 mt-1">Try adjusting your filters</p>
@@ -699,6 +735,14 @@ export default function SupplierList() {
                     s.current_risk_level as string | null,
                     overallEsg
                   );
+                  const supplierSegments = (segmentData?.bySupplier?.[s.id] ?? []).filter((seg) => seg !== "standard");
+                  const needsAction =
+                    supplierSegments.includes("at_risk") ||
+                    supplierSegments.includes("watch") ||
+                    supplierSegments.includes("esg_laggard") ||
+                    s.current_risk_level === "high" ||
+                    s.current_risk_level === "critical" ||
+                    overallEsg == null;
 
                   const esgNorm = compositeHealth?.breakdown.esgNorm;
                   let esgDotClass = "bg-surface-200";
@@ -773,8 +817,33 @@ export default function SupplierList() {
                         />
                       </div>
                     </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {supplierSegments.slice(0, 2).map((seg) => {
+                          const cfg = segmentBadgeConfig[seg];
+                          return (
+                            <span key={seg} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${cfg.className}`}>
+                              {cfg.label}
+                            </span>
+                          );
+                        })}
+                        {needsAction && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-700">
+                            Action
+                          </span>
+                        )}
+                        {!needsAction && supplierSegments.length === 0 && (
+                          <span className="text-xs text-surface-400">Clear</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-5 py-4 text-center text-sm text-surface-600">
-                      {s.contract_count ?? 0}
+                      <div className="flex flex-col items-center gap-1">
+                        <span>{s.contract_count ?? 0}</span>
+                        {supplierSegments.includes("single_source") && (
+                          <span className="text-[10px] font-semibold text-orange-700">single source</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

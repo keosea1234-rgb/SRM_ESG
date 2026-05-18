@@ -11,7 +11,6 @@ import {
   MapPin,
   FileText,
   Users,
-  Calendar,
   DollarSign,
   Plus,
   X,
@@ -22,17 +21,24 @@ import {
   LineChart,
   ShieldAlert,
   Leaf,
+  AlertTriangle,
+  Activity,
+  ClipboardCheck,
+  Clock3,
+  Gauge,
+  TimerReset,
 } from "lucide-react";
 import { apiGet, apiPatch, apiPost } from "../lib/api";
 import { queryKeys } from "../lib/queryKeys";
 import { drillDownVariants } from "../lib/animation";
 import { fetchHealthNarrative, fetchSupplierESG } from "../services/suppliers";
+import { fetchActivityLog, type ActivityLogRow } from "../services/activityLog";
 import { calcHealthScore } from "../lib/healthScore";
 import { COUNTRIES } from "../lib/countries";
 import PerformanceTab from "../components/PerformanceTab";
 import RiskTab from "../components/RiskTab";
 import SupplierESGTab from "../components/SupplierESGTab";
-import type { Supplier, SupplierContact, ContractLink, SupplierSummary } from "../types";
+import type { Supplier, SupplierContact, SupplierSummary } from "../types";
 import { usePageTitle } from "../hooks/usePageTitle";
 
 function formatDate(d: string | null) {
@@ -43,6 +49,35 @@ function formatDate(d: string | null) {
 function formatCurrency(val: number | null) {
   if (val === null || val === undefined) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(val);
+}
+
+function daysUntil(date: string | null) {
+  if (!date) return null;
+  const target = new Date(date).getTime();
+  if (Number.isNaN(target)) return null;
+  return Math.ceil((target - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+function isOlderThan(date: string | null | undefined, days: number) {
+  if (!date) return true;
+  const t = new Date(date).getTime();
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t > days * 24 * 60 * 60 * 1000;
+}
+
+function formatActivityAction(action: string | null) {
+  if (!action) return "Activity";
+  return action
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function metricTone(value: "good" | "watch" | "risk" | "neutral") {
+  if (value === "good") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (value === "watch") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (value === "risk") return "bg-red-50 text-red-700 border-red-200";
+  return "bg-surface-50 text-surface-700 border-surface-200";
 }
 
 function severityDot(severity: "high" | "medium" | "low") {
@@ -134,6 +169,7 @@ type SupplierDetailTab =
   | "contacts"
   | "contracts"
   | "submission"
+  | "timeline"
   | "Performance"
   | "Risk"
   | "esg";
@@ -154,6 +190,12 @@ export default function SupplierDetail() {
     queryFn: () => fetchHealthNarrative(id!),
     enabled: Boolean(id),
     staleTime: 1000 * 60 * 5,
+  });
+  const { data: activityLog } = useQuery({
+    queryKey: ["supplier-activity-log", id],
+    queryFn: () => fetchActivityLog({ supplierId: id!, page: 1, limit: 8 }),
+    enabled: Boolean(id),
+    staleTime: 1000 * 60,
   });
 
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -181,6 +223,7 @@ export default function SupplierDetail() {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [submissionProfile, setSubmissionProfile] = useState<SubmissionProfile | null>(null);
   const [submissionDocuments, setSubmissionDocuments] = useState<SubmissionDocument[]>([]);
+  const [supplierDocuments, setSupplierDocuments] = useState<SubmissionDocument[]>([]);
   const [submissionLoading, setSubmissionLoading] = useState(false);
   const [submissionActionLoading, setSubmissionActionLoading] = useState(false);
 
@@ -199,15 +242,17 @@ export default function SupplierDetail() {
   async function fetchAll() {
     try {
       setLoading(true);
-      const [supData, conData, result] = await Promise.all([
+      const [supData, conData, result, docs] = await Promise.all([
         apiGet<Supplier>(`/api/suppliers/${id}`),
         apiGet<SupplierContact[]>(`/api/suppliers/${id}/contacts`),
         apiGet<any>(`/api/suppliers/${id}/contracts`),
+        apiGet<SubmissionDocument[]>(`/api/suppliers/${id}/documents`).catch(() => []),
       ]);
       setSupplier(supData);
       setContacts(conData);
       const payload = Array.isArray(result) ? result : (result?.data ?? result);
       setContracts(Array.isArray(payload) ? payload : (payload?.data ?? []));
+      setSupplierDocuments(docs);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -226,6 +271,7 @@ export default function SupplierDetail() {
       ]);
       setSubmissionProfile(profile);
       setSubmissionDocuments(docs);
+      setSupplierDocuments(docs);
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -497,7 +543,61 @@ export default function SupplierDetail() {
   const showSubmissionTab =
     onboardingStatus !== undefined && SUBMISSION_TAB_ONBOARDING_STATUSES.has(onboardingStatus);
   const supplierDecisionLocked = onboardingStatus === "approved" || onboardingStatus === "rejected";
-  const pendingDocuments = submissionDocuments.filter((doc) => doc.status === "pending");
+  const pendingDocuments = supplierDocuments.filter((doc) => doc.status === "pending");
+  const approvedDocuments = supplierDocuments.filter((doc) => doc.status === "approved");
+
+  type SupplierWithSignals = Supplier & Partial<Pick<SupplierSummary, "latest_performance_score" | "last_evaluated_at" | "current_risk_level" | "last_risk_assessed_at">>;
+  const signalSupplier = supplier as SupplierWithSignals;
+  const performanceScore = signalSupplier.latest_performance_score ?? null;
+  const riskLevel = signalSupplier.current_risk_level ?? null;
+  const health = calcHealthScore(performanceScore, riskLevel, esgData?.overall_esg_score ?? null);
+  const totalContractValue = contracts.reduce((sum, c) => sum + (c.contract_size || 0), 0);
+  const activeContracts = contracts.filter((c) => c.status === "Active");
+  const expiringContracts = contracts
+    .map((contract) => ({ contract, days: daysUntil(contract.expiration_date) }))
+    .filter((item): item is { contract: LinkedContract; days: number } => item.days != null && item.days >= 0 && item.days <= 90);
+  const contractStatusCounts = contracts.reduce<Record<string, number>>((acc, c) => {
+    acc[c.status] = (acc[c.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const categoryCount = new Set(contracts.map((c) => c.category).filter(Boolean)).size;
+  const hasPrimaryContact = contacts.some((c) => c.is_primary);
+  const timelineRows = activityLog?.data ?? [];
+  const readinessChecks = [
+    { label: "Primary contact", complete: hasPrimaryContact },
+    { label: "Tax ID", complete: Boolean(supplier.tax_id) },
+    { label: "Country", complete: Boolean(supplier.country) },
+    { label: "Industry", complete: Boolean(supplier.industry) },
+    { label: "Company size", complete: Boolean(supplier.company_size) },
+    { label: "Approved document", complete: approvedDocuments.length > 0 },
+    { label: "ESG assessment", complete: esgData?.overall_esg_score != null },
+    { label: "Performance review", complete: performanceScore != null && !isOlderThan(signalSupplier.last_evaluated_at, 180) },
+    { label: "Risk review", complete: riskLevel != null && !isOlderThan(signalSupplier.last_risk_assessed_at, 180) },
+  ];
+  const readinessScore = Math.round((readinessChecks.filter((c) => c.complete).length / readinessChecks.length) * 100);
+  const requiredActions = [
+    ...(pendingDocuments.length > 0
+      ? [{ title: `${pendingDocuments.length} document${pendingDocuments.length > 1 ? "s" : ""} pending review`, detail: "Approve or reject supplier-submitted files.", tone: "risk" as const }]
+      : []),
+    ...(onboardingStatus === "submitted"
+      ? [{ title: "Supplier submission waiting for decision", detail: "Review profile and documents in the Submission tab.", tone: "risk" as const }]
+      : []),
+    ...(!hasPrimaryContact
+      ? [{ title: "Primary contact missing", detail: "Assign one owner for operational escalations.", tone: "watch" as const }]
+      : []),
+    ...(riskLevel === "high" || riskLevel === "critical"
+      ? [{ title: `${riskLevel === "critical" ? "Critical" : "High"} risk supplier`, detail: "Review mitigation plan and next risk assessment.", tone: "risk" as const }]
+      : []),
+    ...(expiringContracts.length > 0
+      ? [{ title: `${expiringContracts.length} contract${expiringContracts.length > 1 ? "s" : ""} expiring in 90 days`, detail: "Start renewal or exit planning.", tone: "watch" as const }]
+      : []),
+    ...(esgData?.overall_esg_score == null
+      ? [{ title: "ESG assessment missing", detail: "Collect ESG data to complete the health view.", tone: "watch" as const }]
+      : []),
+    ...(isOlderThan(signalSupplier.last_evaluated_at, 180)
+      ? [{ title: "Performance review is stale", detail: "Schedule a fresh supplier evaluation.", tone: "watch" as const }]
+      : []),
+  ].slice(0, 5);
 
   const tabs: {
     key: SupplierDetailTab;
@@ -508,6 +608,7 @@ export default function SupplierDetail() {
     { key: "contacts", label: `Contacts (${contacts.length})`, icon: Users },
     { key: "contracts", label: `Contracts (${contracts.length})`, icon: FileText },
     { key: "esg" as const, label: "ESG", icon: Leaf },
+    { key: "timeline" as const, label: "Timeline", icon: Activity },
     ...(showSubmissionTab ? [{ key: "submission" as const, label: "Submission", icon: CheckCircle2 }] : []),
     { key: "Performance", label: "Performance", icon: LineChart },
     { key: "Risk", label: "Risk", icon: ShieldAlert },
@@ -535,7 +636,7 @@ export default function SupplierDetail() {
           <ArrowLeft className="w-4 h-4" /> Back to Suppliers
         </Link>
 
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-brand-50 rounded-xl flex items-center justify-center">
               <Building2 className="w-7 h-7 text-brand-600" />
@@ -584,7 +685,7 @@ export default function SupplierDetail() {
           </div>
 
           {/* Invite Button */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {portalStatus && (
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${portalStatus.className}`}>
                 Portal: {portalStatus.label}
@@ -608,9 +709,55 @@ export default function SupplierDetail() {
         </div>
       </div>
 
+      {/* Executive supplier cockpit */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3">
+        <MetricTile
+          icon={Gauge}
+          label="Health"
+          value={health ? `${health.score} / 10` : "No data"}
+          detail={health ? health.band : "Needs performance data"}
+          tone={health == null ? "neutral" : health.score >= 6 ? "good" : health.score >= 4 ? "watch" : "risk"}
+        />
+        <MetricTile
+          icon={ShieldAlert}
+          label="Risk"
+          value={riskLevel ? riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1) : "No data"}
+          detail={signalSupplier.last_risk_assessed_at ? `Updated ${formatDate(signalSupplier.last_risk_assessed_at)}` : "Review missing"}
+          tone={riskLevel === "critical" || riskLevel === "high" ? "risk" : riskLevel === "medium" ? "watch" : riskLevel === "low" ? "good" : "neutral"}
+        />
+        <MetricTile
+          icon={LineChart}
+          label="Performance"
+          value={performanceScore != null ? performanceScore.toFixed(1) : "No data"}
+          detail={signalSupplier.last_evaluated_at ? `Updated ${formatDate(signalSupplier.last_evaluated_at)}` : "Evaluation missing"}
+          tone={performanceScore == null ? "neutral" : performanceScore >= 7 ? "good" : performanceScore >= 4 ? "watch" : "risk"}
+        />
+        <MetricTile
+          icon={Leaf}
+          label="ESG"
+          value={esgData?.overall_esg_score != null ? `${Number(esgData.overall_esg_score).toFixed(0)} / 100` : "No data"}
+          detail={esgData?.assessed_at ? `Assessed ${formatDate(esgData.assessed_at)}` : "Assessment missing"}
+          tone={esgData?.overall_esg_score == null ? "neutral" : esgData.overall_esg_score >= 70 ? "good" : esgData.overall_esg_score >= 50 ? "watch" : "risk"}
+        />
+        <MetricTile
+          icon={DollarSign}
+          label="Exposure"
+          value={formatCurrency(totalContractValue)}
+          detail={`${activeContracts.length} active contract${activeContracts.length === 1 ? "" : "s"}`}
+          tone={riskLevel === "high" || riskLevel === "critical" ? "risk" : totalContractValue > 0 ? "good" : "neutral"}
+        />
+        <MetricTile
+          icon={ClipboardCheck}
+          label="Readiness"
+          value={`${readinessScore}%`}
+          detail={`${readinessChecks.filter((c) => !c.complete).length} gaps open`}
+          tone={readinessScore >= 80 ? "good" : readinessScore >= 55 ? "watch" : "risk"}
+        />
+      </div>
+
       {/* Tabs */}
       <div className="border-b border-surface-200">
-        <div className="flex gap-6">
+        <div className="flex gap-6 overflow-x-auto">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -657,7 +804,7 @@ export default function SupplierDetail() {
 
           <div className="space-y-4">
             {narrative && (
-              <div className="rounded-xl border border-surface-200 bg-surface-50 p-4 space-y-2">
+              <div className="card p-5 space-y-3">
                 <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide">
                   Health Summary
                 </p>
@@ -673,41 +820,53 @@ export default function SupplierDetail() {
               </div>
             )}
             <div className="card p-5">
-              <p className="text-xs font-medium text-surface-500 uppercase tracking-wider mb-3">Quick Stats</p>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-surface-600">Contacts</span>
-                  <span className="text-sm font-semibold text-surface-900">{contacts.length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-surface-600">Contracts</span>
-                  <span className="text-sm font-semibold text-surface-900">{contracts.length}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-surface-600">Total Value</span>
-                  <span className="text-sm font-semibold text-surface-900">
-                    {formatCurrency(contracts.reduce((sum, c) => sum + (c.contract_size || 0), 0))}
-                  </span>
-                </div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-surface-500 uppercase tracking-wider">Required Actions</p>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${requiredActions.length ? "bg-amber-50 text-amber-700 border border-amber-200" : "bg-emerald-50 text-emerald-700 border border-emerald-200"}`}>
+                  {requiredActions.length ? `${requiredActions.length} open` : "Clear"}
+                </span>
               </div>
+              {requiredActions.length === 0 ? (
+                <p className="text-sm text-surface-500">No immediate supplier actions.</p>
+              ) : (
+                <div className="space-y-2">
+                  {requiredActions.map((item) => (
+                    <div key={item.title} className={`rounded-lg border px-3 py-2 ${metricTone(item.tone)}`}>
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold">{item.title}</p>
+                          <p className="text-xs opacity-80 mt-0.5">{item.detail}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {contacts.find((c) => c.is_primary) && (
-              <div className="card p-5">
-                <p className="text-xs font-medium text-surface-500 uppercase tracking-wider mb-3">Primary Contact</p>
-                {(() => {
-                  const primary = contacts.find((c) => c.is_primary)!;
-                  return (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-surface-900">{primary.full_name}</p>
-                      {primary.title && <p className="text-xs text-surface-500">{primary.title}</p>}
-                      {primary.email && <p className="text-xs text-surface-500 flex items-center gap-1"><Mail className="w-3 h-3" />{primary.email}</p>}
-                      {primary.phone && <p className="text-xs text-surface-500 flex items-center gap-1"><Phone className="w-3 h-3" />{primary.phone}</p>}
-                    </div>
-                  );
-                })()}
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-surface-500 uppercase tracking-wider">Compliance Readiness</p>
+                <span className="text-sm font-bold text-surface-900">{readinessScore}%</span>
               </div>
-            )}
+              <div className="h-2 rounded-full bg-surface-100 overflow-hidden mb-3">
+                <div
+                  className={`h-full ${readinessScore >= 80 ? "bg-emerald-500" : readinessScore >= 55 ? "bg-amber-500" : "bg-red-500"}`}
+                  style={{ width: `${readinessScore}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                {readinessChecks.map((check) => (
+                  <div key={check.label} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="text-surface-600">{check.label}</span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${check.complete ? "bg-emerald-50 text-emerald-700" : "bg-surface-100 text-surface-500"}`}>
+                      {check.complete ? "Ready" : "Missing"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -757,7 +916,55 @@ export default function SupplierDetail() {
       {/* CONTRACTS TAB */}
       {activeTab === "contracts" && (
         <div className="space-y-4">
-          <p className="text-sm text-surface-500">{contracts.length} linked contracts from ContractGuard</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+            <MetricTile
+              icon={DollarSign}
+              label="Total Value"
+              value={formatCurrency(totalContractValue)}
+              detail="Commercial exposure"
+              tone={totalContractValue > 0 ? "good" : "neutral"}
+            />
+            <MetricTile
+              icon={FileText}
+              label="Active"
+              value={String(activeContracts.length)}
+              detail={`${contracts.length} linked total`}
+              tone={activeContracts.length > 0 ? "good" : "neutral"}
+            />
+            <MetricTile
+              icon={TimerReset}
+              label="Expiring"
+              value={String(expiringContracts.length)}
+              detail="Next 90 days"
+              tone={expiringContracts.length > 0 ? "watch" : "good"}
+            />
+            <MetricTile
+              icon={ClipboardCheck}
+              label="Categories"
+              value={String(categoryCount)}
+              detail={categoryCount <= 1 && contracts.length > 0 ? "Concentrated exposure" : "Distributed exposure"}
+              tone={categoryCount <= 1 && contracts.length > 0 ? "watch" : "good"}
+            />
+            <MetricTile
+              icon={ShieldAlert}
+              label="Risk x Value"
+              value={riskLevel === "high" || riskLevel === "critical" ? "Elevated" : "Normal"}
+              detail={riskLevel ? `${riskLevel} supplier risk` : "Risk data missing"}
+              tone={riskLevel === "high" || riskLevel === "critical" ? "risk" : riskLevel ? "good" : "neutral"}
+            />
+          </div>
+          <div className="card p-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-sm text-surface-500">{contracts.length} linked contracts from ContractGuard</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {Object.entries(contractStatusCounts).map(([status, count]) => (
+                  <span key={status} className={`badge ${contractStatusConfig[status] || "bg-surface-100 text-surface-600 border border-surface-200"}`}>
+                    {status}: {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
           {contracts.length === 0 ? (
             <div className="card p-12 text-center">
               <FileText className="w-10 h-10 text-surface-300 mx-auto mb-3" />
@@ -792,6 +999,47 @@ export default function SupplierDetail() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TIMELINE TAB */}
+      {activeTab === "timeline" && (
+        <div className="card overflow-hidden">
+          <div className="px-5 py-4 border-b border-surface-100 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="font-display text-base font-semibold text-surface-900">Supplier Relationship Timeline</h2>
+              <p className="text-sm text-surface-500 mt-0.5">Latest lifecycle, approval, profile, and evaluation activity.</p>
+            </div>
+            <Activity className="w-5 h-5 text-surface-400 shrink-0" />
+          </div>
+          {timelineRows.length === 0 ? (
+            <div className="px-5 py-12 text-center">
+              <Clock3 className="w-9 h-9 text-surface-300 mx-auto mb-3" />
+              <p className="text-sm text-surface-500">No activity has been recorded for this supplier yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-surface-100">
+              {timelineRows.map((row: ActivityLogRow) => (
+                <div key={row.id} className="px-5 py-4 flex gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+                    <Activity className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-surface-900">{formatActivityAction(row.action)}</p>
+                      <span className="text-xs text-surface-400 shrink-0">{formatDate(row.performed_at)}</span>
+                    </div>
+                    <p className="text-sm text-surface-600 mt-0.5">{row.description || "Supplier record updated."}</p>
+                    {row.field_name && (
+                      <p className="text-xs text-surface-400 mt-1">
+                        {row.field_name}: {row.old_value || "empty"} {"->"} {row.new_value || "empty"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1042,6 +1290,33 @@ export default function SupplierDetail() {
         </div>
       )}
     </motion.div>
+  );
+}
+
+function MetricTile({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  detail: string;
+  tone: "good" | "watch" | "risk" | "neutral";
+}) {
+  return (
+    <div className={`rounded-xl border px-4 py-3 ${metricTone(tone)}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-wide opacity-75">{label}</p>
+          <p className="text-lg font-bold mt-1 truncate">{value}</p>
+          <p className="text-xs mt-0.5 opacity-80 truncate">{detail}</p>
+        </div>
+        <Icon className="w-5 h-5 shrink-0 opacity-80" />
+      </div>
+    </div>
   );
 }
 

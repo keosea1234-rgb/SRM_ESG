@@ -24,6 +24,6 @@ export async function fetchRiskSummary(): Promise<RiskSummaryResponse> {
   return apiGet<RiskSummaryResponse>("/api/risk/summary");
 }
 
-export async function fetchRiskSuppliers(): Promise<{ data: { id: string; name: string }[] }> {
-  return apiGet<{ data: { id: string; name: string }[] }>("/api/suppliers?limit=200&status=active");
+export async function fetchRiskSuppliers(): Promise<{ data: { id: string; name: string; country?: string | null }[] }> {
+  return apiGet<{ data: { id: string; name: string; country?: string | null }[] }>("/api/suppliers?limit=200&status=active");
 }

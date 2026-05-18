@@ -23,6 +23,13 @@ export interface Supplier {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  latest_performance_score?: number | null;
+  last_evaluated_at?: string | null;
+  current_risk_level?: RiskLevel | null;
+  current_risk_score?: number | null;
+  last_risk_assessed_at?: string | null;
+  total_value?: number | null;
+  parent_name?: string | null;
 }
 
 export interface SupplierContact {

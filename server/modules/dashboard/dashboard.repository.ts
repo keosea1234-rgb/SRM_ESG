@@ -26,6 +26,15 @@ export interface TopSupplierRow {
   overall_esg_score: number | null;
 }
 
+interface EsgDashboardRow {
+  supplier_id: string;
+  assessment_date: string | null;
+  overall_esg_score: number | null;
+  env_score: number | null;
+  social_score: number | null;
+  gov_score: number | null;
+}
+
 async function fetchLatestOverallEsgScoresForSupplierIds(
   ids: string[]
 ): Promise<Map<string, number | null>> {
@@ -102,21 +111,40 @@ export async function getRecentActivities(): Promise<RepositoryResult<ActivityRo
 }
 
 // Gets supplier documents expiring within the next 30 days.
-export async function getExpiringDocs(): Promise<RepositoryResult<{ id: string }[]>> {
-  const { data, error } = await supabase
+export async function getExpiringDocs(industry?: string): Promise<RepositoryResult<{ id: string }[]>> {
+  let supplierIds: string[] | null = null;
+  if (industry && industry !== "all") {
+    const idRes = await supplierIdsForIndustry(industry);
+    if (idRes.error) return { data: null, error: idRes.error };
+    supplierIds = idRes.data ?? [];
+    if (supplierIds.length === 0) return { data: [], error: null };
+  }
+
+  let query = supabase
     .from("srm_supplier_documents")
     .select("id")
     .lte("expiry_date", new Date(Date.now() + 30 * 86400000).toISOString())
     .gte("expiry_date", new Date().toISOString());
+  if (supplierIds) query = query.in("supplier_id", supplierIds);
+  const { data, error } = await query;
   return { data: (data as { id: string }[] | null) ?? [], error };
 }
 
 export async function getTopSuppliers(industry?: string): Promise<RepositoryResult<TopSupplierRow[]>> {
-  const { data, error } = await supabase
+  let supplierIds: string[] | null = null;
+  if (industry && industry !== "all") {
+    const idRes = await supplierIdsForIndustry(industry);
+    if (idRes.error) return { data: null, error: idRes.error };
+    supplierIds = idRes.data ?? [];
+    if (supplierIds.length === 0) return { data: [], error: null };
+  }
+
+  let query = supabase
     .from("mv_supplier_dashboard_summary")
     .select("supplier_id, supplier_name, latest_score, current_risk_level, contract_count")
-    .order("latest_score", { ascending: false, nullsFirst: false })
-    .limit(10);
+    .order("latest_score", { ascending: false, nullsFirst: false });
+  if (supplierIds) query = query.in("supplier_id", supplierIds);
+  const { data, error } = await query.limit(10);
 
   if (error) return { data: [], error };
 
@@ -129,19 +157,6 @@ export async function getTopSuppliers(industry?: string): Promise<RepositoryResu
     overall_esg_score: null,
   }));
 
-  if (industry && industry !== "all" && rows.length > 0) {
-    const ids = rows.map((r) => r.id);
-    const { data: industryRows, error: indErr } = await supabase
-      .from("srm_suppliers")
-      .select("id, industry")
-      .in("id", ids);
-    if (indErr) return { data: [], error: indErr };
-    const allowed = new Set(
-      (industryRows ?? []).filter((r) => r.industry === industry).map((r) => r.id as string)
-    );
-    rows = rows.filter((r) => allowed.has(r.id));
-  }
-
   const esgMap = await fetchLatestOverallEsgScoresForSupplierIds(rows.map((r) => r.id));
   rows = rows.map((r) => ({
     ...r,
@@ -151,12 +166,22 @@ export async function getTopSuppliers(industry?: string): Promise<RepositoryResu
   return { data: rows, error: null };
 }
 
-export async function getDecliningSuppliers(): Promise<RepositoryResult<{ id: string; name: string; latest_score: number; previous_score: number }[]>> {
-  const { data, error } = await supabase
+export async function getDecliningSuppliers(industry?: string): Promise<RepositoryResult<{ id: string; name: string; latest_score: number; previous_score: number }[]>> {
+  let supplierIds: string[] | null = null;
+  if (industry && industry !== "all") {
+    const idRes = await supplierIdsForIndustry(industry);
+    if (idRes.error) return { data: null, error: idRes.error };
+    supplierIds = idRes.data ?? [];
+    if (supplierIds.length === 0) return { data: [], error: null };
+  }
+
+  let query = supabase
     .from('mv_supplier_score_trend')
     .select('supplier_id, supplier_name, latest_score, previous_score')
     .lt('score_delta', 0)
     .order('score_delta', { ascending: true });
+  if (supplierIds) query = query.in("supplier_id", supplierIds);
+  const { data, error } = await query;
 
   if (error) return { data: [], error };
 
@@ -201,6 +226,14 @@ export interface EsgBandsRow {
   compliant: number;
   developing: number;
   non_compliant: number;
+}
+
+export interface EsgKpisRow {
+  avg_esg: number;
+  avg_env: number;
+  avg_social: number;
+  avg_gov: number;
+  total: number;
 }
 
 async function supplierIdsForIndustry(industry: string): Promise<RepositoryResult<string[]>> {
@@ -248,40 +281,83 @@ export async function getPerformanceBands(industry?: string): Promise<Repository
 }
 
 export async function getEsgBands(industry?: string): Promise<RepositoryResult<EsgBandsRow>> {
+  const rowsRes = await getLatestApprovedEsgRows(industry);
+  if (rowsRes.error) return { data: null, error: rowsRes.error };
+  const rows = rowsRes.data ?? [];
+
+  const compliant = rows.filter((row) => (row.overall_esg_score ?? 0) >= 60).length;
+  const developing = rows.filter((row) => (row.overall_esg_score ?? 0) >= 30 && (row.overall_esg_score ?? 0) < 60).length;
+  const nonCompliant = rows.filter((row) => row.overall_esg_score == null || row.overall_esg_score < 30).length;
+
+  return {
+    data: {
+      compliant,
+      developing,
+      non_compliant: nonCompliant,
+    },
+    error: null,
+  };
+}
+
+export async function getEsgKpisForDashboard(industry?: string): Promise<RepositoryResult<EsgKpisRow>> {
+  const rowsRes = await getLatestApprovedEsgRows(industry);
+  if (rowsRes.error) return { data: null, error: rowsRes.error };
+  const rows = rowsRes.data ?? [];
+
+  if (rows.length === 0) {
+    return {
+      data: { avg_esg: 0, avg_env: 0, avg_social: 0, avg_gov: 0, total: 0 },
+      error: null,
+    };
+  }
+
+  const avg = (key: keyof Pick<EsgDashboardRow, "overall_esg_score" | "env_score" | "social_score" | "gov_score">) => {
+    const values = rows
+      .map((row) => row[key])
+      .filter((value): value is number => value != null && Number.isFinite(value));
+    if (values.length === 0) return 0;
+    return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  };
+
+  return {
+    data: {
+      avg_esg: avg("overall_esg_score"),
+      avg_env: avg("env_score"),
+      avg_social: avg("social_score"),
+      avg_gov: avg("gov_score"),
+      total: rows.length,
+    },
+    error: null,
+  };
+}
+
+async function getLatestApprovedEsgRows(industry?: string): Promise<RepositoryResult<EsgDashboardRow[]>> {
   let supplierIds: string[] | null = null;
   if (industry && industry !== "all") {
     const idRes = await supplierIdsForIndustry(industry);
     if (idRes.error) return { data: null, error: idRes.error };
     supplierIds = idRes.data ?? [];
-    if (supplierIds.length === 0) {
-      return { data: { compliant: 0, developing: 0, non_compliant: 0 }, error: null };
+    if (supplierIds.length === 0) return { data: [], error: null };
+  }
+
+  let query = supabase
+    .from("srm_esg_assessments")
+    .select("supplier_id, assessment_date, overall_esg_score, env_score, social_score, gov_score")
+    .eq("status", "approved");
+  if (supplierIds) query = query.in("supplier_id", supplierIds);
+
+  const { data, error } = await query;
+  if (error) return { data: null, error };
+
+  const latestBySupplier = new Map<string, EsgDashboardRow>();
+  for (const row of (data ?? []) as EsgDashboardRow[]) {
+    const previous = latestBySupplier.get(row.supplier_id);
+    const rowDate = String(row.assessment_date ?? "");
+    const previousDate = String(previous?.assessment_date ?? "");
+    if (!previous || rowDate > previousDate) {
+      latestBySupplier.set(row.supplier_id, row);
     }
   }
 
-  const assessCount = () => {
-    let q = supabase
-      .from("srm_esg_assessments")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "approved");
-    if (supplierIds) q = q.in("supplier_id", supplierIds);
-    return q;
-  };
-
-  const [compliantRes, developingRes, nonCompliantRes] = await Promise.all([
-    assessCount().gte("overall_esg_score", 60),
-    assessCount().gte("overall_esg_score", 30).lt("overall_esg_score", 60),
-    assessCount().or("overall_esg_score.lt.30,overall_esg_score.is.null"),
-  ]);
-
-  const err = compliantRes.error ?? developingRes.error ?? nonCompliantRes.error;
-  if (err) return { data: null, error: err };
-
-  return {
-    data: {
-      compliant: compliantRes.count ?? 0,
-      developing: developingRes.count ?? 0,
-      non_compliant: nonCompliantRes.count ?? 0,
-    },
-    error: null,
-  };
+  return { data: [...latestBySupplier.values()], error: null };
 }

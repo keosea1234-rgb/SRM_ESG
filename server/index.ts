@@ -15,6 +15,7 @@ import activityRouter from "./modules/activity/activity.routes";
 import esgRouter from "./modules/esg/esg.routes";
 import alertsRouter from "./modules/alerts/alerts.routes";
 import complianceRouter from "./modules/compliance/compliance.routes";
+import spendRouter from "./modules/spend/spend.routes";
 import { correlationIdMiddleware } from "./middleware/correlationId";
 import { generalLimiter } from "./middleware/rateLimiter";
 import { errorHandler } from "./middleware/errorHandler";
@@ -115,6 +116,7 @@ app.use("/api", activityRouter);
 app.use("/api/esg", esgRouter);
 app.use("/api", alertsRouter);
 app.use("/api", complianceRouter);
+app.use("/api", spendRouter);
 
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);

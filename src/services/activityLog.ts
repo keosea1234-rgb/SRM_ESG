@@ -22,12 +22,14 @@ export async function fetchActivityLog(params: {
   page: number;
   limit: number;
   action?: string;
+  supplierId?: string;
 }): Promise<ActivityLogResponse> {
   const qs = new URLSearchParams({
     page: String(params.page),
     limit: String(params.limit),
   });
   if (params.action) qs.set("action", params.action);
+  if (params.supplierId) qs.set("supplierId", params.supplierId);
   return apiGet<ActivityLogResponse>(`/api/activity-log?${qs}`);
 }
 

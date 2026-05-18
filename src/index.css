@@ -4,7 +4,11 @@
 
 @layer base {
   body {
-    @apply bg-[#f0f6fa] text-surface-900 font-sans;
+    @apply bg-[#eef7f6] text-surface-900 font-sans;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(27, 205, 172, 0.20), transparent 30rem),
+      radial-gradient(circle at 82% 4%, rgba(223, 255, 31, 0.16), transparent 26rem),
+      linear-gradient(135deg, #eef7f6 0%, #f5f9fb 48%, #e6f2f8 100%);
   }
 }
 
@@ -28,6 +32,58 @@
 
   .card {
     @apply bg-white rounded-xl border border-surface-200 shadow-sm;
+  }
+
+  .dashboard-shell {
+    @apply relative overflow-hidden rounded-2xl border border-white/60 p-4 shadow-2xl shadow-brand-950/10 md:p-5;
+    background:
+      linear-gradient(135deg, rgba(222, 243, 239, 0.84), rgba(237, 248, 247, 0.58)),
+      radial-gradient(circle at 78% 20%, rgba(223, 255, 31, 0.17), transparent 18rem);
+  }
+
+  .dashboard-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.24) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.20) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.42), transparent 72%);
+  }
+
+  .glass-panel {
+    @apply relative overflow-hidden rounded-lg border border-white/60 shadow-lg shadow-brand-950/5;
+    background: rgba(255, 255, 255, 0.72);
+  }
+
+  .glass-panel::after,
+  .glass-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  }
+
+  .glass-card {
+    @apply relative overflow-hidden rounded-lg border border-white/60 shadow-sm transition duration-300;
+    background: rgba(255, 255, 255, 0.78);
+  }
+
+  .glass-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 20px 45px rgba(0, 57, 90, 0.12);
+  }
+
+  .neon-rule {
+    background: linear-gradient(90deg, rgba(223, 255, 31, 0), rgba(223, 255, 31, 0.92), rgba(27, 205, 172, 0));
+  }
+
+  .animated-bar {
+    transform-origin: left center;
   }
 
   .input-field {
@@ -101,4 +157,20 @@
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s infinite linear;
+}
+
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-bar,
+  .skeleton-shimmer {
+    animation: none;
+  }
+
+  .glass-card:hover {
+    transform: none;
+  }
 }

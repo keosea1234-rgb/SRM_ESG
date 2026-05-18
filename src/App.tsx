@@ -20,6 +20,7 @@ import ComparisonPage from "./pages/ComparisonPage";
 import PlaceholderPage from "./pages/PlaceholderPage";
 import SetPasswordPage from "./pages/SetPasswordPage";
 import SupplierPortalPage from "./pages/SupplierPortalPage";
+import SpendPage from "./pages/SpendPage";
 
 function AppRoutes() {
   const { session, profile, profileLoading, loading, permissions } = useAuth();
@@ -60,6 +61,14 @@ function AppRoutes() {
         <Route path="/suppliers" element={<SupplierList />} />
         <Route path="/suppliers/:id" element={<SupplierDetail />} />
         <Route path="/contracts" element={<ContractsPage />} />
+        <Route
+          path="/spend"
+          element={
+            profile?.role === "admin" || profile?.role === "procurement_manager"
+              ? <SpendPage />
+              : <Navigate to="/" replace />
+          }
+        />
         <Route path="/performance" element={<PerformancePage />} />
         <Route path="/risks" element={<RiskPage />} />
         <Route path="/activity" element={<ActivityLogPage />} />

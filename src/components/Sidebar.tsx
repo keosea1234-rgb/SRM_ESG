@@ -9,6 +9,7 @@ import {
   Activity,
   Leaf,
   GitCompare,
+  HandCoins,
   Settings,
   ShieldCheck,
 } from "lucide-react";
@@ -26,7 +27,7 @@ interface NavItem {
 
 const NAV_GROUPS = [
   { label: "Overview", items: ["/"] },
-  { label: "Supplier", items: ["/suppliers", "/contracts", "/compare"] },
+  { label: "Supplier", items: ["/suppliers", "/contracts", "/compare", "/spend"] },
   { label: "Analytics", items: ["/performance", "/risks", "/esg", "/compliance"] },
   { label: "System", items: ["/activity", "/settings"] },
 ];
@@ -52,6 +53,12 @@ const NAV_ITEMS: NavItem[] = [
     to: "/compare",
     icon: GitCompare,
     label: "Compare",
+    allowedRoles: ["admin", "procurement_manager"],
+  },
+  {
+    to: "/spend",
+    icon: HandCoins,
+    label: "Spend",
     allowedRoles: ["admin", "procurement_manager"],
   },
   {

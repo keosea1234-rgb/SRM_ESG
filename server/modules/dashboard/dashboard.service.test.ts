@@ -9,11 +9,8 @@ vi.mock('./dashboard.repository', () => ({
   getDecliningSuppliers: vi.fn(),
   getSparklineData: vi.fn(),
   getPerformanceBands: vi.fn(),
+  getEsgKpisForDashboard: vi.fn(),
   getEsgBands: vi.fn(),
-}));
-
-vi.mock('../esg/esg.service', () => ({
-  getEsgSummary: vi.fn(),
 }));
 
 vi.mock('../risk/risk.repository', () => ({
@@ -21,7 +18,6 @@ vi.mock('../risk/risk.repository', () => ({
 }));
 
 import * as repo from './dashboard.repository';
-import { getEsgSummary } from '../esg/esg.service';
 import { getDashboardOverview } from './dashboard.service';
 
 const mockSupplierRows = [
@@ -49,11 +45,14 @@ function mockAllRepo() {
     data: { high: 1, medium: 2, low: 3 },
     error: null,
   } as any);
+  vi.mocked(repo.getEsgKpisForDashboard).mockResolvedValue({
+    data: { avg_esg: 65, avg_env: 60, avg_social: 70, avg_gov: 66, total: 30 },
+    error: null,
+  } as any);
   vi.mocked(repo.getEsgBands).mockResolvedValue({
     data: { compliant: 10, developing: 5, non_compliant: 2 },
     error: null,
   } as any);
-  vi.mocked(getEsgSummary).mockResolvedValue({ avg_esg: 65, avg_env: 60, avg_social: 70, avg_gov: 66, total: 30 } as any);
 }
 
 describe('getDashboardOverview', () => {
@@ -112,5 +111,19 @@ describe('getDashboardOverview', () => {
       expect(result.data.totalSuppliers).toBe(0);
       expect(result.data.activeSuppliers).toBe(0);
     }
+  });
+
+  it('passes industry scope to scoped dashboard repositories', async () => {
+    mockAllRepo();
+    await getDashboardOverview('Manufacturing');
+
+    expect(repo.getAllSupplierStats).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getHighRiskCount).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getExpiringDocs).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getTopSuppliers).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getDecliningSuppliers).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getPerformanceBands).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getEsgKpisForDashboard).toHaveBeenCalledWith('Manufacturing');
+    expect(repo.getEsgBands).toHaveBeenCalledWith('Manufacturing');
   });
 });

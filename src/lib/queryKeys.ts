@@ -14,6 +14,7 @@ export const queryKeys = {
   risk: () => ["risk"] as const,
   riskSuppliers: () => ["risk-suppliers"] as const,
   contracts: (filters?: Record<string, unknown>) => ["contracts", filters ?? {}] as const,
+  spend: (filters?: Record<string, unknown>) => ["spend", filters ?? {}] as const,
   activityLog: (filters?: Record<string, unknown>) => ["activity-log", filters ?? {}] as const,
   activityActions: () => ["activity-log-actions"] as const,
   esgSummary: () => ["esg-summary"] as const,

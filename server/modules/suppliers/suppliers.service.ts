@@ -12,6 +12,7 @@ import {
   inviteSupplierByEmail,
   markSupplierInvited,
   Supplier,
+  SupplierDetail,
   SupplierContact,
   SupplierContract,
   SupplierSummary,
@@ -99,7 +100,7 @@ export async function getAllSuppliers(): Promise<ServiceResult<SupplierSummary[]
 // ── SINGLE ────────────────────────────────────────────────────────────────────
 
 // Returns one supplier by id when found.
-export async function getSupplierById(id: string): Promise<ServiceResult<Supplier>> {
+export async function getSupplierById(id: string): Promise<ServiceResult<SupplierDetail>> {
   const { data, error } = await getSupplierByIdRepository(id);
   if (error || !data) return { ok: false, status: 404, error: "Supplier not found" };
   return { ok: true, data };
